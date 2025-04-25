@@ -6,6 +6,7 @@ Swap MemorySessionStore for RedisSessionStore, SQLSessionStore …
 from collections import defaultdict
 from typing import List, Dict
 
+
 Chat = List[Dict[str, str]]  # OpenAI-style [{role, content}, ...]
 
 class SessionStore:
