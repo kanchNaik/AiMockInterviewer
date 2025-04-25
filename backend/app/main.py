@@ -1,7 +1,7 @@
-from fastapi import FastAPI
+from . import create_app
 
-app = FastAPI(title="AI Mock Interviewer API", version="0.1.0")
+app = create_app()
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
