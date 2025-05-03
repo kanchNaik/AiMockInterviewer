@@ -1,0 +1,75 @@
+.interview-container {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 20px;
+  font-family: Arial, sans-serif;
+}
+
+.interview-title {
+  font-size: 28px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.chat-box {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 20px;
+  background: #fafafa;
+  height: 70vh;
+  overflow-y: auto;
+}
+
+.chat-block {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed #ccc;
+}
+
+.chat-question,
+.chat-answer,
+.chat-feedback {
+  margin-bottom: 8px;
+}
+
+.answer-box {
+  width: 100%;
+  padding: 12px;
+  font-size: 14px;
+  margin-top: 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+.submit-btn,
+.next-btn {
+  margin-top: 12px;
+  margin-right: 10px;
+  padding: 10px 20px;
+  font-size: 15px;
+  background-color: black;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.submit-btn:disabled,
+.next-btn:disabled {
+  background-color: gray;
+  cursor: wait;
+}
+
+.next-prompt {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.next-buttons {
+  margin-top: 12px;
+}
+
+.next-buttons button {
+  margin: 0 8px;
+}

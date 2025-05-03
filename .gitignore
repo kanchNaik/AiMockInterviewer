@@ -1,10 +1,22 @@
-.venv/
+# === Python backend ===
 __pycache__/
+*.py[cod]
 *.pyc
 *.pyo
 *.pyd
+.venv/
+venv/
 .env
-.DS_Store
-.idea/
-.vscode/
+*.env
 .venv/Lib/site-packages/fastapi/applications.py
+# === Frontend Node.js ===
+node_modules/
+dist/
+
+# === OS / Editor ===
+.DS_Store
+.vscode/
+.idea/
+
+# === Log files ===
+*.log

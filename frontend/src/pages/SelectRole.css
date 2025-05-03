@@ -1,0 +1,107 @@
+.container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: #f9f9f9;
+    padding: 20px;
+  }
+  
+  .card {
+    background-color: white;
+    padding: 40px;
+    border-radius: 12px;
+    border: 2px solid #cce4ff;
+    max-width: 800px;
+    width: 100%;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+  
+  .heading {
+    font-size: 26px;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 30px;
+    color: #111;
+  }
+  
+  .section {
+    margin-bottom: 24px;
+    text-align: left;
+  }
+  
+  .section h2 {
+    font-size: 18px;
+    margin-bottom: 10px;
+    font-weight: bold;
+  }
+  
+  .company-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  
+  .role-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  
+  .btn {
+    padding: 14px;
+    font-size: 16px;
+    border: 2px solid #ccc;
+    border-radius: 8px;
+    background-color: #f2f2f2;
+    cursor: pointer;
+    flex-shrink: 0;
+    min-width: 150px;
+    transition: all 0.2s ease-in-out;
+  }
+  
+  .btn:hover {
+    background-color: #e0e0e0;
+  }
+  
+  .selected {
+    background-color: black;
+    color: white;
+    border-color: black;
+  }
+  
+  .dropdown {
+    padding: 10px;
+    font-size: 16px;
+    width: 50%;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+  }
+  
+  .preview {
+    font-style: italic;
+    margin-bottom: 20px;
+    color: #333;
+    text-align: center;
+    min-height: 24px;
+  }
+  
+  .start-btn {
+    background-color: black;
+    color: white;
+    padding: 14px 24px;
+    font-size: 16px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    width: 100%;
+    max-width: 400px;
+    margin: 0 auto;
+    display: block;
+    transition: background-color 0.3s ease;
+  }
+  
+  .start-btn:hover {
+    background-color: #333;
+  }
+  
