@@ -1,31 +1,15 @@
-# gpt.py
+# core/gpt/base.py
 """
-LLM wrapper compatible with openai-python v1.x
-- chat(messages) -> str
-- score_answer(question, answer) -> int (overall)
-- score_with_metrics(question, answer) -> dict (detailed metrics JSON)
+Base interface + shared scoring prompt / parsing for LLM providers.
+Provider-agnostic. Reused by OpenAI, Llama, Mistral, etc.
 """
 
-import os
 import json
+from abc import ABC, abstractmethod
 from typing import List, Dict, Any
-from openai import AsyncOpenAI
-
-client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 
-async def chat(messages: List[Dict[str, str]]) -> str:
-    resp = await client.chat.completions.create(
-        model=MODEL,
-        messages=messages,
-        temperature=0.7,
-    )
-    return (resp.choices[0].message.content or "").strip()
-
-
-# ---- Metrics scoring ----
-_SCORER_SYS = """You are a strict interviewer for data roles (Data Scientist, Data Engineer,
+SCORER_SYS = """You are a strict interviewer for data roles (Data Scientist, Data Engineer,
 Machine Learning Engineer, Data Analyst). You must return ONLY a single JSON object.
 Never add prose.
 
@@ -61,25 +45,27 @@ Return JSON with:
 }
 """
 
-async def score_with_metrics(question: str, answer: str) -> Dict[str, Any]:
-    user = f"""Question: {question}
 
-Answer: {answer}
+class BaseLLMClient(ABC):
+    """Abstract interface for any LLM provider backend."""
 
-Return ONLY the JSON described above."""
-    resp = await client.chat.completions.create(
-        model=MODEL,
-        temperature=0,
-        messages=[
-            {"role": "system", "content": _SCORER_SYS},
-            {"role": "user", "content": user},
-        ],
-    )
-    raw = (resp.choices[0].message.content or "").strip()
+    @abstractmethod
+    async def chat(self, messages: List[Dict[str, str]]) -> str:
+        ...
 
-    # Parse & sanitize
+    @abstractmethod
+    async def score_with_metrics(self, question: str, answer: str) -> Dict[str, Any]:
+        ...
+
+    async def score_answer(self, question: str, answer: str) -> int:
+        metrics = await self.score_with_metrics(question, answer)
+        return int(round(metrics.get("overall", 0)))
+
+
+def sanitize_metrics(raw_json: str) -> Dict[str, Any]:
+    """Parse, clamp, validate and finalize scoring metrics."""
     try:
-        obj = json.loads(raw)
+        obj = json.loads(raw_json)
     except Exception:
         obj = {}
 
@@ -90,7 +76,7 @@ Return ONLY the JSON described above."""
             x = default
         return max(0.0, min(10.0, x))
 
-    metrics = {
+    metrics: Dict[str, Any] = {
         "technical_correctness": _num(obj.get("technical_correctness")),
         "clarity": _num(obj.get("clarity")),
         "completeness": _num(obj.get("completeness")),
@@ -105,19 +91,13 @@ Return ONLY the JSON described above."""
         "notes": (obj.get("notes") or "").strip()[:300],
     }
 
-    # Apply hard caps (your latest rule: any of these -> overall = 0)
+    # Hard caps
     f = metrics["flags"]
     if f["gibberish"] or f["off_topic"] or f["dont_know"] or f["policy_violation"]:
         metrics["overall"] = 0.0
 
-    # round to 1 decimal
+    # Round
     for k in ("technical_correctness", "clarity", "completeness", "tone", "overall"):
         metrics[k] = round(float(metrics[k]), 1)
 
     return metrics
-
-
-async def score_answer(question: str, answer: str) -> int:
-    """Convenience wrapper that returns just the overall integer 0..10."""
-    m = await score_with_metrics(question, answer)
-    return int(round(m.get("overall", 0)))

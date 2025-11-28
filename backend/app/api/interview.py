@@ -10,7 +10,7 @@ from ..schemas import (
     SaveScorePayload
 )
 from ..core.state import store
-from ..core import gpt
+from ..core.ModelIntegrations import modelfactory
 from ..core.database import db
 
 router = APIRouter()
@@ -52,9 +52,9 @@ async def start(payload: StartPayload):
 
     store.add(sid, {"role": "user", "content": first_prompt})
     question = await _with_timeout(
-        gpt.chat(store.get(sid)),
+        modelfactory.chat(store.get(sid)),
         fallback="Tell me about a recent data project you’re proud of and your role in it.",
-        label="gpt.chat(first question)",
+        label="modelfactory.chat(first question)",
     )
     store.add(sid, {"role": "assistant", "content": question})
 
@@ -79,9 +79,9 @@ async def answer(payload: AnswerPayload):
     })
 
     full = await _with_timeout(
-        gpt.chat(hist),
+        modelfactory.chat(hist),
         fallback="Good start. Consider adding specific metrics next time.\n\nNEXT: What are your favorite data quality checks and why?",
-        label="gpt.chat(feedback+next)",
+        label="modelfactory.chat(feedback+next)",
     )
     hist.append({"role": "assistant", "content": full})
 
@@ -92,10 +92,10 @@ async def answer(payload: AnswerPayload):
 
     # NEW: detailed metrics (and overall)
     metrics = await _with_timeout(
-        gpt.score_with_metrics(last_question, payload.text),
+        modelfactory.score_with_metrics(last_question, payload.text),
         fallback={"technical_correctness": None, "clarity": None, "completeness": None, "tone": None,
                   "overall": None, "flags": {}, "notes": ""},
-        label="gpt.score_with_metrics",
+        label="modelfactory.score_with_metrics",
     )
     overall = None if (metrics.get("overall") is None) else float(metrics.get("overall"))
     score_for_field = int(round(overall)) if (overall is not None) else None

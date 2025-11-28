@@ -32,7 +32,7 @@ def _regex_extract(text: str) -> Dict[str, Optional[str]]:
 
 # ---------- 2) fallback to GPT JSON mode ----------
 import json, openai
-from ..core import gpt   # re-use the same AsyncOpenAI client
+from ..core.ModelIntegrations import gpt   # re-use the same AsyncOpenAI client
 
 async def _gpt_extract(text: str) -> Dict[str, Optional[str]]:
     function_def = {
