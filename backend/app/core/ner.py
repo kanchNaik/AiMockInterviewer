@@ -5,7 +5,17 @@ Very light job-domain NER / slot-filling.
 """
 
 from typing import Dict, Optional
-import re, os
+import asyncio
+import json
+import os
+import re
+
+try:
+    import google.generativeai as genai  # type: ignore
+except ImportError:  # pragma: no cover
+    genai = None
+
+from .rag import GEMINI_DEFAULT_API_KEY, GEMINI_DEFAULT_MODEL
 
 # ---------- 1) spaCy first ----------
 try:
@@ -30,31 +40,49 @@ def _regex_extract(text: str) -> Dict[str, Optional[str]]:
         "role":     role_m.group(1).title() if role_m else None,
     }
 
-# ---------- 2) fallback to GPT JSON mode ----------
-import json, openai
-from ..core import gpt   # re-use the same AsyncOpenAI client
+_LLM_SYSTEM_PROMPT = (
+    "Extract the company, level, and data role from the user's request. "
+    "Return ONLY JSON using keys company, level, role. Use null when unknown."
+)
 
-async def _gpt_extract(text: str) -> Dict[str, Optional[str]]:
-    function_def = {
-        "name": "extract_job_params",
-        "description": "Pull company, level, role from user request",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "company": {"type": "string", "nullable": True},
-                "level":   {"type": "string", "nullable": True},
-                "role":    {"type": "string", "nullable": True},
-            },
-            "required": [],
-        },
+_GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or GEMINI_DEFAULT_API_KEY
+_GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL", GEMINI_DEFAULT_MODEL)
+_gemini_model = None
+
+
+def _ensure_gemini_model():
+    global _gemini_model
+    if genai is None:
+        raise RuntimeError("google-generativeai is not installed.")
+    if not _GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+    if _gemini_model is None:
+        genai.configure(api_key=_GEMINI_API_KEY)
+        _gemini_model = genai.GenerativeModel(_GEMINI_MODEL_NAME)
+    return _gemini_model
+
+
+async def _llm_extract(text: str) -> Dict[str, Optional[str]]:
+    if genai is None:
+        return {"company": None, "level": None, "role": None}
+    model = _ensure_gemini_model()
+    prompt = f"{_LLM_SYSTEM_PROMPT}\n\nSentence: \"{text}\""
+
+    def _run():
+        resp = model.generate_content(prompt)
+        return getattr(resp, "text", "") or ""
+
+    try:
+        raw = await asyncio.to_thread(_run)
+        payload = json.loads(raw)
+    except Exception:
+        return {"company": None, "level": None, "role": None}
+
+    return {
+        "company": payload.get("company"),
+        "level": payload.get("level"),
+        "role": payload.get("role"),
     }
-    resp = await gpt.client.chat.completions.create(
-        model=gpt.MODEL,
-        messages=[{"role": "user", "content": text}],
-        functions=[function_def],
-        function_call={"name": "extract_job_params"},
-    )
-    return json.loads(resp.choices[0].message.function_call.arguments)
 
 # ---------- public helper ----------
 async def extract(text: str) -> Dict[str, Optional[str]]:
@@ -68,8 +96,8 @@ async def extract(text: str) -> Dict[str, Optional[str]]:
             if e.label_ == "ORG":
                 data["company"] = e.text
                 break
-    # if still gaps, ask GPT
+    # if still gaps, fall back to LLM
     if not all(data.values()):
-        gpt_data = await _gpt_extract(text)
-        data = {k: data[k] or gpt_data.get(k) for k in ["company", "level", "role"]}
+        llm_data = await _llm_extract(text)
+        data = {k: data[k] or llm_data.get(k) for k in ["company", "level", "role"]}
     return data

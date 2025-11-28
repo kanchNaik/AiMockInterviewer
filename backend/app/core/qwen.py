@@ -1,27 +1,103 @@
-# gpt.py
+# qwen.py
 """
-LLM wrapper compatible with openai-python v1.x
+LLM wrapper that talks to a Hugging Face inference endpoint hosting the fine-tuned
+Qwen model. Provides the same async helpers used elsewhere in the backend:
 - chat(messages) -> str
 - score_answer(question, answer) -> int (overall)
 - score_with_metrics(question, answer) -> dict (detailed metrics JSON)
 """
 
-import os
 import json
-from typing import List, Dict, Any
-from openai import AsyncOpenAI
+import os
+from typing import Any, Dict, List
 
-client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+import httpx
+
+HF_ENDPOINT = os.getenv(
+    "LLM_ENDPOINT",
+    "https://qgwj48ky9i7zjuzj.us-east-1.aws.endpoints.huggingface.cloud",
+)
+HF_API_TOKEN = os.getenv("HF_API_TOKEN") or os.getenv("HUGGINGFACE_API_KEY")
+LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "60"))
+CHAT_MAX_NEW_TOKENS = int(os.getenv("LLM_MAX_NEW_TOKENS", "512"))
+
+
+class LLMConfigError(RuntimeError):
+    """Raised when the Hugging Face endpoint is misconfigured."""
+
+
+def _build_headers() -> Dict[str, str]:
+    if not HF_API_TOKEN:
+        raise LLMConfigError("HF_API_TOKEN or HUGGINGFACE_API_KEY must be configured.")
+    return {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {HF_API_TOKEN}",
+    }
+
+
+def _format_chat_prompt(messages: List[Dict[str, str]]) -> str:
+    """Convert OpenAI-style chat messages into a simple text prompt."""
+    lines: List[str] = []
+    role_map = {"system": "System", "assistant": "Assistant", "user": "User"}
+
+    for msg in messages:
+        role = role_map.get(msg.get("role", "").lower(), "User")
+        content = (msg.get("content") or "").strip()
+        if content:
+            lines.append(f"{role}: {content}")
+
+    lines.append("Assistant:")
+    return "\n".join(lines)
+
+
+def _extract_generated_text(payload: Any) -> str:
+    if isinstance(payload, list) and payload:
+        first = payload[0]
+        if isinstance(first, dict):
+            return str(first.get("generated_text") or first.get("text") or "")
+        return str(first)
+    if isinstance(payload, dict):
+        if "generated_text" in payload:
+            return str(payload["generated_text"])
+        if "text" in payload:
+            return str(payload["text"])
+    return ""
+
+
+async def _invoke_llm(prompt: str, *, temperature: float, max_new_tokens: int) -> str:
+    if not HF_ENDPOINT:
+        raise LLMConfigError("LLM_ENDPOINT is not configured.")
+
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "temperature": max(0.0, temperature),
+            "max_new_tokens": max(1, max_new_tokens),
+            "return_full_text": False,
+            "do_sample": temperature > 0,
+        },
+        "options": {"wait_for_model": True},
+    }
+
+    async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+        response = await client.post(HF_ENDPOINT, headers=_build_headers(), json=payload)
+
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:  # pragma: no cover - network failure path
+        detail = exc.response.text[:500]
+        raise RuntimeError(f"LLM request failed: {detail}") from exc
+
+    data = response.json()
+    text = _extract_generated_text(data).strip()
+    if not text:
+        raise RuntimeError("LLM response did not include generated_text.")
+    return text
 
 
 async def chat(messages: List[Dict[str, str]]) -> str:
-    resp = await client.chat.completions.create(
-        model=MODEL,
-        messages=messages,
-        temperature=0.7,
-    )
-    return (resp.choices[0].message.content or "").strip()
+    prompt = _format_chat_prompt(messages)
+    return await _invoke_llm(prompt, temperature=0.7, max_new_tokens=CHAT_MAX_NEW_TOKENS)
 
 
 # ---- Metrics scoring ----
@@ -61,21 +137,15 @@ Return JSON with:
 }
 """
 
+
 async def score_with_metrics(question: str, answer: str) -> Dict[str, Any]:
     user = f"""Question: {question}
 
 Answer: {answer}
 
 Return ONLY the JSON described above."""
-    resp = await client.chat.completions.create(
-        model=MODEL,
-        temperature=0,
-        messages=[
-            {"role": "system", "content": _SCORER_SYS},
-            {"role": "user", "content": user},
-        ],
-    )
-    raw = (resp.choices[0].message.content or "").strip()
+    prompt = f"System: {_SCORER_SYS.strip()}\nUser: {user.strip()}\nAssistant:"
+    raw = await _invoke_llm(prompt, temperature=0.0, max_new_tokens=300)
 
     # Parse & sanitize
     try:
