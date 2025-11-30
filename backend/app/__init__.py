@@ -7,6 +7,8 @@ from .api.session import router as session_router
 from .api import auth
 from .core.database import db
 from .api import audio
+from app.api import resume
+
 
 def create_app() -> FastAPI:
     app = FastAPI(title="LLM Mock Interviewer", version="0.1.0")
@@ -24,6 +26,8 @@ def create_app() -> FastAPI:
     app.include_router(session_router)
     app.include_router(auth.router)
     app.include_router(audio.router)
+    app.include_router(resume.router, prefix="/api/resume")
+
 
     @app.on_event("startup")
     async def ensure_indexes():
