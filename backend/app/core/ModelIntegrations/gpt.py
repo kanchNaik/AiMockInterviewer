@@ -56,13 +56,14 @@ class OpenAIClient(BaseLLMClient):
             "Rules:\n"
             "- One single question\n"
             "- No explanation\n"
-            "- No multi-part questions"
+            "- No multi-part questions\n"
+            "- Use User Context to understand user data"
         )
 
         msgs = [{"role": "system", "content": system_prompt}]
         msgs += clean_history
         msgs.append({"role": "user", "content": prompt})
-
+        print("Prompt sent to Qwen Model", msgs)
         return await self._chat(msgs)
 
 

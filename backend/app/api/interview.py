@@ -31,6 +31,7 @@ async def _with_timeout(coro, fallback, label: str):
 async def start(payload: StartPayload):
     sid = payload.session_id or str(uuid.uuid4())
 
+    print("Start Interview Payload:", payload)
     meta = {
         "company": payload.company,
         "role": payload.role,

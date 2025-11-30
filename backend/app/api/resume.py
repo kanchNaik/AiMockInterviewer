@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, UploadFile, File
 from pypdf import PdfReader
 from docx import Document
-from app.core.gpt import chat
+from ..core.ModelIntegrations.gpt import OpenAIClient
 
 router = APIRouter()
 
@@ -57,8 +57,8 @@ async def analyze_resume_text(text: str):
 
     Output only JSON. No explanations.
     """
-
-    raw = await chat([
+    client = OpenAIClient()
+    raw = await client._chat([
         {"role": "user", "content": prompt}
     ])
 

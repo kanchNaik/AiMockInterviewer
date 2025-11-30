@@ -272,12 +272,20 @@ const SelectRole = () => {
     setError("");
 
     const composed =
-      `I have an interview at ${company} for a ${role}` +
-      (level?.trim() ? ` position at level ${level}` : "") + ".";
-    const extra = brief?.trim() ? ` Additional context: ${brief}` : "";
+  `I have an interview at ${company} for a ${role}` +
+  (level?.trim() ? ` position at level ${level}` : "") + ".";
+
+  const extraBrief = brief?.trim()
+    ? ` Additional context: ${brief}`
+    : "";
+
+    //  NEW: include resume summary as explicit “resume context”
+    const extraResume = resumeSummary?.trim()
+      ? ` User resume context: ${resumeSummary}`
+      : "";
 
     const payload = {
-      user_text: composed + extra,
+      user_text: composed + extraBrief + extraResume, 
       session_id: null,
       company,
       role,
@@ -285,6 +293,7 @@ const SelectRole = () => {
       email: email || undefined,
       userId: userId || undefined,
     };
+
 
     try {
       const res = await axios.post(`${API}/session`, payload);
