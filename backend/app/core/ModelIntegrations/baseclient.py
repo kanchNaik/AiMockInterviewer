@@ -1,14 +1,20 @@
-# core/gpt/base.py
 """
-Base interface + shared scoring prompt / parsing for LLM providers.
-Provider-agnostic. Reused by OpenAI, Llama, Mistral, etc.
+Base interface + shared scoring prompt / parsing.
+Now redesigned so that:
+- chat() is INTERNAL (_chat)
+- Each provider implements:
+    • generate_first_question()
+    • evaluate_answer_and_followup()
+    • score_with_metrics()
 """
 
 import json
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
-
+# -------------------------------------------
+# NO CHANGE – scoring system stays same
+# -------------------------------------------
 SCORER_SYS = """You are a strict interviewer for data roles (Data Scientist, Data Engineer,
 Machine Learning Engineer, Data Analyst). You must return ONLY a single JSON object.
 Never add prose.
@@ -30,7 +36,7 @@ Flags (booleans):
 - policy_violation: true if unsafe or disallowed content.
 
 Hard caps:
-- If gibberish OR off_topic OR dont_know -> set overall=0 (do not exceed 0).
+- If gibberish OR off_topic OR dont_know -> set overall=0.
 - If policy_violation -> set overall=0.
 
 Return JSON with:
@@ -41,42 +47,67 @@ Return JSON with:
   "tone": <0-10>,
   "overall": <0-10>,
   "flags": { "gibberish": <bool>, "off_topic": <bool>, "dont_know": <bool>, "policy_violation": <bool> },
-  "notes": "<one short sentence explaining the main reason for the score>"
+  "notes": "<short explanation>"
 }
 """
 
 
+# ======================================================================
+# ✅ UPDATED BASE CLIENT
+# ======================================================================
 class BaseLLMClient(ABC):
-    """Abstract interface for any LLM provider backend."""
+    """
+    New architecture:
+    - Providers DO NOT expose chat().
+    - Providers implement:
+        generate_first_question()
+        evaluate_answer_and_followup()
+        score_with_metrics()
+    - _chat() is provider specific (OpenAI chat, HF text-gen, etc.)
+    """
 
+    # ----------------------------------------------------
+    # INTERNAL LOW-LEVEL CHAT — provider-specific
+    # ----------------------------------------------------
     @abstractmethod
-    async def chat(self, messages: List[Dict[str, str]]) -> str:
+    async def _chat(self, messages: List[Dict[str, str]]) -> str:
         ...
+
+    # ----------------------------------------------------
+    # HIGH-LEVEL PUBLIC API (router consumes these)
+    # ----------------------------------------------------
+    async def generate_first_question(self, meta: dict, history: List[Dict[str, str]]):
+        raise NotImplementedError()
+
+    async def evaluate_answer_and_followup(self, question: str, answer: str, history: List[Dict[str, str]]):
+        raise NotImplementedError()
 
     @abstractmethod
     async def score_with_metrics(self, question: str, answer: str) -> Dict[str, Any]:
         ...
 
     async def score_answer(self, question: str, answer: str) -> int:
-        metrics = await self.score_with_metrics(question, answer)
-        return int(round(metrics.get("overall", 0)))
+        m = await self.score_with_metrics(question, answer)
+        return int(round(m.get("overall", 0)))
 
 
+# ======================================================================
+# JSON SANITIZER — SAME AS BEFORE
+# ======================================================================
 def sanitize_metrics(raw_json: str) -> Dict[str, Any]:
-    """Parse, clamp, validate and finalize scoring metrics."""
     try:
         obj = json.loads(raw_json)
     except Exception:
         obj = {}
 
-    def _num(v, default=0.0):
+    def _num(v, d=0.0):
         try:
             x = float(v)
         except Exception:
-            x = default
+            x = d
         return max(0.0, min(10.0, x))
 
-    metrics: Dict[str, Any] = {
+    metrics = {
         "technical_correctness": _num(obj.get("technical_correctness")),
         "clarity": _num(obj.get("clarity")),
         "completeness": _num(obj.get("completeness")),

@@ -15,132 +15,94 @@ from ..core.database import db
 
 router = APIRouter()
 
-SYSTEM_TMPL = (
-    "You are an expert {role} interviewer (seniority: {seniority}). "
-    "Ask ONE clear, concise question at a time. Increase difficulty gradually "
-    "if the candidate performs well."
-)
 
-def system_msg(role: str, seniority: str) -> dict:
-    return {"role": "system", "content": SYSTEM_TMPL.format(role=role, seniority=seniority)}
-
-# ---- avoid hangs ----
-DEFAULT_TIMEOUT = 30  # seconds
-async def _with_timeout(coro, fallback, label: str, timeout=DEFAULT_TIMEOUT):
+DEFAULT_TIMEOUT = 30
+async def _with_timeout(coro, fallback, label: str):
     try:
-        return await asyncio.wait_for(coro, timeout=timeout)
+        return await asyncio.wait_for(coro, timeout=DEFAULT_TIMEOUT)
     except Exception as e:
-        print(f"[warn] {label} failed or timed out:", e)
+        print(f"[warn] {label} failed:", e)
         return fallback
 
+# ============================================================
+# START
+# ============================================================
 @router.post("/start", response_model=StartResponse)
 async def start(payload: StartPayload):
     sid = payload.session_id or str(uuid.uuid4())
-    store.new(sid, system_msg(payload.role, payload.seniority))
 
-    first_prompt = (
-        "Generate the FIRST interview question only.\n"
-        f"Company: {payload.company or 'generic'}\n"
-        f"Role: {payload.role}\n"
-        f"Seniority/Level: {payload.seniority or 'unspecified'}\n"
-        f"Candidate brief (optional): {payload.context or 'n/a'}\n\n"
-        "Rules:\n"
-        "- Return a single well-formed question, no preamble, no explanation.\n"
-        "- Keep it relevant to the company/role/level and any brief above.\n"
-        "- Avoid multi-part questions; one focused question."
-    )
+    meta = {
+        "company": payload.company,
+        "role": payload.role,
+        "seniority": payload.seniority,
+        "context": payload.context,
+    }
 
-    store.add(sid, {"role": "user", "content": first_prompt})
+    # initialize session history
+    store.new(sid, [])
+
     question = await _with_timeout(
-        modelfactory.chat(store.get(sid)),
-        fallback="Tell me about a recent data project you’re proud of and your role in it.",
-        label="modelfactory.chat(first question)",
+        modelfactory.generate_first_question(meta, store.get(sid)),
+        fallback="Tell me about a recent project you're proud of.",
+        label="first_question"
     )
+
     store.add(sid, {"role": "assistant", "content": question})
 
     return {"session_id": sid, "question": question}
 
+# ============================================================
+# ANSWER
+# ============================================================
 @router.post("/answer", response_model=AnswerResponse)
 async def answer(payload: AnswerPayload):
     hist = store.get(payload.session_id)
     if not hist:
-        raise HTTPException(status_code=404, detail="Unknown session_id; call /start first")
+        raise HTTPException(404, "Unknown session_id")
 
-    last_question = next((m["content"] for m in reversed(hist) if m["role"] == "assistant"), "") or ""
+    last_question = next((m["content"] for m in reversed(hist) if m["role"] == "assistant"), "")
 
-    # user answer + ask for feedback & next Q
     hist.append({"role": "user", "content": payload.text})
-    hist.append({
-        "role": "user",
-        "content": (
-            "Evaluate my answer briefly in ≤3 sentences (focus on correctness, clarity, completeness). "
-            "Then write 'NEXT:' followed by the single next question."
-        ),
-    })
 
-    full = await _with_timeout(
-        modelfactory.chat(hist),
-        fallback="Good start. Consider adding specific metrics next time.\n\nNEXT: What are your favorite data quality checks and why?",
-        label="modelfactory.chat(feedback+next)",
+    eval_result = await _with_timeout(
+        modelfactory.evaluate_answer_and_followup(last_question, payload.text, hist),
+        fallback={
+            "feedback": "Good attempt. Try adding more detail next time.",
+            "next_question": "What is your favorite data quality check?"
+        },
+        label="feedback+next"
     )
-    hist.append({"role": "assistant", "content": full})
 
-    if "NEXT:" in full:
-        feedback, nxt = full.split("NEXT:", 1)
-    else:
-        feedback, nxt = full, "Interview finished."
+    feedback = eval_result["feedback"]
+    nxt = eval_result["next_question"]
 
-    # NEW: detailed metrics (and overall)
+    hist.append({"role": "assistant", "content": feedback})
+    hist.append({"role": "assistant", "content": nxt})
+
     metrics = await _with_timeout(
         modelfactory.score_with_metrics(last_question, payload.text),
-        fallback={"technical_correctness": None, "clarity": None, "completeness": None, "tone": None,
-                  "overall": None, "flags": {}, "notes": ""},
-        label="modelfactory.score_with_metrics",
+        fallback={"overall": None},
+        label="metrics"
     )
-    overall = None if (metrics.get("overall") is None) else float(metrics.get("overall"))
-    score_for_field = int(round(overall)) if (overall is not None) else None
+
+    overall = metrics.get("overall")
+    score_for_field = int(round(overall)) if overall is not None else None
 
     # persist
-    try:
-        idx = await db["turns"].count_documents({"sessionId": payload.session_id})
-        await db["turns"].insert_one({
-            "sessionId": payload.session_id,
-            "index": idx,
-            "question": last_question,
-            "userAnswer": payload.text,
-            "feedback": feedback.strip(),
-            "score": score_for_field,
-            "metrics": metrics,             # <-- SAVE METRICS
-            "createdAt": datetime.utcnow(),
-        })
-    except Exception as e:
-        print("[warn] turn insert failed:", e)
+    idx = await db["turns"].count_documents({"sessionId": payload.session_id})
+    await db["turns"].insert_one({
+        "sessionId": payload.session_id,
+        "index": idx,
+        "question": last_question,
+        "userAnswer": payload.text,
+        "feedback": feedback,
+        "score": score_for_field,
+        "metrics": metrics,
+        "createdAt": datetime.utcnow(),
+    })
 
-    return {"feedback": feedback.strip(), "question": nxt.strip(), "score": score_for_field}
-
-@router.post("/session/{session_id}/score")
-async def save_session_score(session_id: str, payload: SaveScorePayload):
-    if payload.scores:
-        for row in payload.scores:
-            try:
-                idx = int(row.get("index", -1))
-            except Exception:
-                idx = -1
-            if idx >= 0 and row.get("score") is not None:
-                try:
-                    await db["turns"].update_one(
-                        {"sessionId": session_id, "index": idx},
-                        {"$set": {"score": int(row["score"])}},
-                    )
-                except Exception as e:
-                    print("[warn] turn score update failed:", e)
-
-    try:
-        await db["sessions"].update_one(
-            {"sessionId": session_id},
-            {"$set": {"overallScore": payload.overall, "updatedAt": datetime.utcnow()}},
-        )
-    except Exception as e:
-        print("[warn] session overall score save failed:", e)
-
-    return {"ok": True, "overall": payload.overall}
+    return {
+        "feedback": feedback,
+        "question": nxt,
+        "score": score_for_field
+    }
