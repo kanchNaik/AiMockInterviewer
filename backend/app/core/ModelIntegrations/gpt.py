@@ -3,7 +3,7 @@ Updated OpenAI client for new high-level architecture.
 """
 
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from openai import AsyncOpenAI
 
 from .baseclient import BaseLLMClient, SCORER_SYS, sanitize_metrics
@@ -34,7 +34,7 @@ class OpenAIClient(BaseLLMClient):
     # ------------------------------------------------------
     # HIGH-LEVEL: First Question
     # ------------------------------------------------------
-    async def generate_first_question(self, meta: dict, history: List[Dict[str, str]]):
+    async def generate_first_question(self, meta: dict, history: List[Dict[str, str]], rag_matches: Optional[List[Dict[str, str]]] = None):
 
         # NEW FIX — CLEAN HISTORY
         clean_history = [
@@ -42,12 +42,33 @@ class OpenAIClient(BaseLLMClient):
             if isinstance(m, dict) and isinstance(m.get("content"), str) and "role" in m
         ]
 
+        rag_context = ""
+        if rag_matches:
+            examples = rag_matches[:5]  # limit size
+            lines = []
+
+            for i, ex in enumerate(examples, start=1):
+                q = (ex.get("question") or "").strip()
+                tags = (ex.get("tags") or "").strip()
+                if q:
+                    lines.append(f"{i}. {q}  (Tags: {tags})")
+
+            if lines:
+                rag_context = (
+                    "Here are reference interview questions retrieved from your knowledge base. "
+                    "Use them ONLY to guide theme, difficulty, and style. DO NOT repeat them verbatim:\n"
+                    + "\n".join(lines) +
+                    "\n\n"
+                )
+
+
         system_prompt = (
             f"You are an expert {meta.get('role')} interviewer (seniority: {meta.get('seniority')}). "
             "Ask ONE clear, concise question at a time. Increase difficulty gradually if the candidate performs well."
         )
 
         prompt = (
+            f"{rag_context}"
             "Generate the FIRST interview question only.\n"
             f"Company: {meta.get('company')}\n"
             f"Role: {meta.get('role')}\n"

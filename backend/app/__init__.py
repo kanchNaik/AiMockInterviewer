@@ -7,7 +7,7 @@ from .api.session import router as session_router
 from .api import auth
 from .core.database import db
 from .api import audio
-from app.api import resume
+from .api import resume
 
 
 def create_app() -> FastAPI:

@@ -6,15 +6,15 @@ Qwen HF Endpoint Client
 
 import os
 import httpx
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 from .baseclient import BaseLLMClient, SCORER_SYS, sanitize_metrics
 
 
 class QwenClient(BaseLLMClient):
     def __init__(self):
-        self.endpoint = os.getenv("QWEN_ENDPOINT", "https://qgwj48ky9i7zjuzj.us-east-1.aws.endpoints.huggingface.cloud")
-        self.api_key = os.getenv("QWEN_API_KEY", "myauthkey")
+        self.endpoint = os.getenv("QWEN_ENDPOINT", "")
+        self.api_key = os.getenv("QWEN_API_KEY", "")
 
         if not self.endpoint:
             raise RuntimeError("QWEN_ENDPOINT is not set")
@@ -61,20 +61,39 @@ class QwenClient(BaseLLMClient):
     # =========================================================
     # PUBLIC: FIRST QUESTION
     # =========================================================
-    async def generate_first_question(self, meta: dict, history: List[Dict[str, str]]):
-        prompt = f"""
-You are an expert interviewer.
+    async def generate_first_question(self, meta: dict, history: List[Dict[str, str]], rag_matches: Optional[List[Dict[str, str]]] = None):
+        rag_context = ""
+        if rag_matches:
+            examples = rag_matches[:5]  # limit size
+            lines = []
 
-Generate ONE strong first interview question.
-- No explanation
-- No intro
-- No multi-part questions
+            for i, ex in enumerate(examples, start=1):
+                q = (ex.get("question") or "").strip()
+                tags = (ex.get("tags") or "").strip()
+                if q:
+                    lines.append(f"{i}. {q}  (Tags: {tags})")
 
-Company: {meta.get('company')}
-Role: {meta.get('role')}
-Seniority: {meta.get('seniority')}
-Context: {meta.get('context')}
-"""
+            if lines:
+                rag_context = (
+                    "Here are reference interview questions retrieved from your knowledge base. "
+                    "Use them ONLY to guide theme, difficulty, and style. DO NOT repeat them verbatim:\n"
+                    + "\n".join(lines) +
+                    "\n\n"
+                )
+                
+        prompt = f"{rag_context}" + f"""
+        You are an expert interviewer.
+
+        Generate ONE strong first interview question.
+        - No explanation
+        - No intro
+        - No multi-part questions
+
+        Company: {meta.get('company')}
+        Role: {meta.get('role')}
+        Seniority: {meta.get('seniority')}
+        Context: {meta.get('context')}
+        """
         return await self._generate(prompt)
 
     # =========================================================

@@ -12,6 +12,7 @@ from ..schemas import (
 from ..core.state import store
 from ..core.ModelIntegrations import modelfactory
 from ..core.database import db
+from ..core.utilities import ragpipeline
 
 router = APIRouter()
 
@@ -42,8 +43,9 @@ async def start(payload: StartPayload):
     # initialize session history
     store.new(sid, [])
 
+    rag_cntx = ragpipeline.run_full_pipeline(payload.company, payload.role, payload.seniority)
     question = await _with_timeout(
-        modelfactory.generate_first_question(meta, store.get(sid)),
+        modelfactory.generate_first_question(meta, store.get(sid), rag_cntx),
         fallback="Tell me about a recent project you're proud of.",
         label="first_question"
     )

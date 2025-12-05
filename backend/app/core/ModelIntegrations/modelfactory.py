@@ -24,7 +24,7 @@ def _build_client() -> BaseLLMClient:
 _client = _build_client()
 
 
-async def generate_first_question(meta, history):
+async def generate_first_question(meta, history, rag_matches=None):
     return await _client.generate_first_question(meta, history)
 
 
