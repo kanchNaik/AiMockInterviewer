@@ -4,6 +4,9 @@ from passlib.context import CryptContext
 from pymongo.errors import DuplicateKeyError
 from datetime import datetime
 from ..core.database import db  # <-- relative import
+from datetime import datetime, timedelta
+import secrets
+from typing import Optional
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
@@ -33,6 +36,14 @@ class ForgotPasswordRequest(BaseModel):
     @classmethod
     def normalize_email(cls, v):
         return str(v).strip().lower()
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+    # optional extra safety check
+    email: Optional[EmailStr] = None
+
 
 @router.post("/signup")
 async def signup(payload: SignupRequest):
@@ -66,7 +77,76 @@ async def login(payload: LoginRequest):
 
 @router.post("/forgot-password")
 async def forgot_password(payload: ForgotPasswordRequest):
-    user = await db["users"].find_one({"email": str(payload.email)})
+    """
+    Generate a one-time reset token.
+
+    In a real app you would email this link.
+    For this project we return the token in JSON so the frontend
+    can redirect straight to the reset form.
+    """
+    email = str(payload.email)
+
+    user = await db["users"].find_one({"email": email})
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return {"message": f"Password reset link sent to {payload.email}"}
+        # don't reveal if user exists; keep the message generic
+        return {"message": "If this email exists, we sent a reset link."}
+
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(hours=1)
+
+    await db["users"].update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {
+                "resetToken": token,
+                "resetExpires": expires_at,
+            }
+        },
+    )
+
+    return {
+        "message": "If this email exists, we sent a reset link.",
+        "token": token,  # frontend will use this to go to /reset-password
+    }
+
+
+@router.post("/reset-password")
+async def reset_password(payload: ResetPasswordRequest):
+    """
+    Validate reset token and update the user's password.
+    """
+    token = payload.token.strip()
+    new_password = payload.new_password
+
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password too short.")
+
+    now = datetime.utcnow()
+
+    user = await db["users"].find_one(
+        {
+            "resetToken": token,
+            "resetExpires": {"$gt": now},
+        }
+    )
+
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired token.")
+
+    # optional: double-check email if the client sends it
+    if payload.email:
+        if user.get("email", "").lower() != str(payload.email).strip().lower():
+            raise HTTPException(status_code=400, detail="Token does not match this email.")
+
+    # hash new password & update
+    hashed = pwd_context.hash(new_password)
+
+    await db["users"].update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {"password": hashed},
+            "$unset": {"resetToken": "", "resetExpires": ""},
+        },
+    )
+
+    return {"message": "Password has been reset successfully."}
