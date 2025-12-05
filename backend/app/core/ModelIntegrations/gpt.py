@@ -6,10 +6,8 @@ import os
 from typing import List, Dict, Any, Optional
 from openai import AsyncOpenAI
 
-from .baseclient import BaseLLMClient, SCORER_SYS, sanitize_metrics
 
-
-class OpenAIClient(BaseLLMClient):
+class OpenAIClient():
 
     def __init__(self):
         api = os.getenv("OPENAI_API_KEY", "")
