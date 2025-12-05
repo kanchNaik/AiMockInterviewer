@@ -6,15 +6,11 @@ import os
 from typing import List, Dict, Any
 
 from .baseclient import BaseLLMClient
-from .gpt import OpenAIClient
 from .qwen import QwenClient
 
 
 def _build_client() -> BaseLLMClient:
-    name = os.getenv("MODEL_CLIENT_NAME", "openai").lower()
-
-    if name == "openai":
-        return OpenAIClient()
+    name = os.getenv("MODEL_CLIENT_NAME", "qwen").lower()
     if name == "qwen":
         return QwenClient()
 
