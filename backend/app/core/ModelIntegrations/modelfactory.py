@@ -7,6 +7,7 @@ from typing import List, Dict, Any
 
 from .baseclient import BaseLLMClient
 from .qwen import QwenClient
+from .gpt import OpenAIClient
 
 
 def _build_client() -> BaseLLMClient:
@@ -28,5 +29,6 @@ async def evaluate_answer_and_followup(question, answer, history):
     return await _client.evaluate_answer_and_followup(question, answer, history)
 
 
-async def score_with_metrics(question, answer):
-    return await _client.score_with_metrics(question, answer)
+# async def score_with_metrics(question, answer):
+#     openaiclient = OpenAIClient()
+#     return await openaiclient.score_with_metrics(question, answer)

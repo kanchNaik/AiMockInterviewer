@@ -11,6 +11,7 @@ Now redesigned so that:
 import json
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
+from .gpt import OpenAIClient
 
 # -------------------------------------------
 # NO CHANGE – scoring system stays same
@@ -82,12 +83,10 @@ class BaseLLMClient(ABC):
     async def evaluate_answer_and_followup(self, question: str, answer: str, history: List[Dict[str, str]]):
         raise NotImplementedError()
 
-    @abstractmethod
-    async def score_with_metrics(self, question: str, answer: str) -> Dict[str, Any]:
-        ...
-
     async def score_answer(self, question: str, answer: str) -> int:
-        m = await self.score_with_metrics(question, answer)
+        client = OpenAIClient()
+        print("generating scores")
+        m = await client.score_with_metrics(question, answer)
         return int(round(m.get("overall", 0)))
 
 

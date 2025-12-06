@@ -13,8 +13,10 @@ from ..core.state import store
 from ..core.ModelIntegrations import modelfactory
 from ..core.database import db
 from ..core.utilities import ragpipeline
+from ..core.ModelIntegrations.gpt import OpenAIClient
 
 router = APIRouter()
+
 
 
 DEFAULT_TIMEOUT = 30
@@ -78,12 +80,14 @@ async def answer(payload: AnswerPayload):
 
     feedback = eval_result["feedback"]
     nxt = eval_result["next_question"]
+    print("next question log", nxt)
 
     hist.append({"role": "assistant", "content": feedback})
     hist.append({"role": "assistant", "content": nxt})
+    openaiclient = OpenAIClient()
 
     metrics = await _with_timeout(
-        modelfactory.score_with_metrics(last_question, payload.text),
+        openaiclient.score_with_metrics(last_question, payload.text),
         fallback={"overall": None},
         label="metrics"
     )
